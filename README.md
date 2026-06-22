@@ -33,9 +33,9 @@ To recreate the development environment, you need the following software and/or 
 
 I found these websites useful in developing this software:
 
-* This project was made using all AI to better learn how to utilize AI and have it do things needed to build the project 
+* This project was developed entirely through AI-assisted pair programming. My primary goal was to explore how Large Language Models (LLMs) can be effectively utilized to architect, debug, and write functional game code from scratch. It served as a hands-on experiment in prompt engineering and AI collaboration.
 
-
+Additional Documentation used: https://api.arcade.academy/en/latest/
 ## Future Work
 
 The following items I plan to fix, improve, and/or add to this project in the future:

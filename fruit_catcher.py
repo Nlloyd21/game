@@ -17,6 +17,7 @@ STATE_GAMEPLAY = 3
 STATE_PAUSE = 4
 STATE_SETTINGS = 5
 STATE_GAMEOVER = 6
+STATE_LEVEL_UP = 7
 
 class FruitCatcherGame(arcade.Window):
     def __init__(self):
@@ -29,6 +30,11 @@ class FruitCatcherGame(arcade.Window):
         self.previous_state = STATE_MENU
         self.control_mode = "KEYBOARD"  
         self.sensitivity = 5.0          
+        self.sfx_muted = False
+        self.music_muted = False
+        self.basket_colors = [arcade.color.SADDLE_BROWN, arcade.color.ROYAL_BLUE, arcade.color.CRIMSON, arcade.color.DARK_ORANGE, arcade.color.FOREST_GREEN]
+        self.basket_color_names = ["CLASSIC BROWN", "ROYAL BLUE", "CRIMSON RED", "TANGERINE", "FOREST GREEN"]
+        self.basket_color_index = 0
         
         self.score = 0
         self.lives = 3
@@ -37,6 +43,8 @@ class FruitCatcherGame(arcade.Window):
         
         self.intro_timer = 0.0
         self.last_intro_second = 4
+        self.level_transition_timer = 0.0 
+        
         self.player_name_input = ""
         self.score_saved = False  
         
@@ -70,7 +78,7 @@ class FruitCatcherGame(arcade.Window):
         self.top_scores = []
         self.load_leaderboard()
         
-        # --- FIXED: Isolated Audio Asset Pipeline ---
+        # --- Audio Asset Pipeline ---
         self.snd_coin = self.safe_load_sound(":resources:sounds/coin1.wav")
         self.snd_bomb = self.safe_load_sound(":resources:sounds/explosion2.wav")
         self.snd_level = self.safe_load_sound(":resources:sounds/upgrade1.wav")
@@ -88,11 +96,7 @@ class FruitCatcherGame(arcade.Window):
         
         self.bg_music = self.safe_load_sound(":resources:music/funkyrobot.mp3")
         self.music_player = None
-        if self.bg_music:
-            try:
-                self.music_player = self.bg_music.play(volume=0.12, loop=True)
-            except Exception:
-                pass
+        self.toggle_music(force_play=True)
             
         self.OBJECT_TYPES = [
             {"name": "Apple", "color": arcade.color.RED, "points": 10, "type": "fruit", "alignment": "good", "radius": 16},
@@ -134,21 +138,31 @@ class FruitCatcherGame(arcade.Window):
         self.pause_quit = arcade.Text("Press [Q] to Quit to Main Menu", self.screen_w//2, self.screen_h//2 - 60, arcade.color.LIGHT_CORAL, 20, anchor_x="center")
         
         self.settings_title = arcade.Text("SETTINGS MENU", self.screen_w//2, self.screen_h//2 + 160, arcade.color.CYAN, 38, anchor_x="center", bold=True)
-        self.settings_control = arcade.Text("", self.screen_w//2, self.screen_h//2 + 40, arcade.color.WHITE, 22, anchor_x="center")
-        self.settings_control_sub = arcade.Text("(Press [M] to toggle Mouse / Keyboard Input mapping modes)", self.screen_w//2, self.screen_h//2 + 15, arcade.color.LIGHT_GRAY, 14, anchor_x="center")
-        self.settings_sens = arcade.Text("", self.screen_w//2, self.screen_h//2 - 50, arcade.color.WHITE, 22, anchor_x="center")
-        self.settings_sens_sub = arcade.Text("(Press [LEFT]/[RIGHT] arrow indices to alter speed scale limits)", self.screen_w//2, self.screen_h//2 - 75, arcade.color.LIGHT_GRAY, 14, anchor_x="center")
         self.settings_back = arcade.Text("Press [BACKSPACE] to Return to Previous Window", self.screen_w//2, self.screen_h//2 - 180, arcade.color.GOLD, 18, anchor_x="center")
 
+    def toggle_music(self, force_play=False):
+        if not force_play:
+            self.music_muted = not self.music_muted
+            
+        if self.music_muted:
+            if self.music_player and self.bg_music:
+                self.bg_music.stop(self.music_player)
+                self.music_player = None
+        else:
+            if self.bg_music and not self.music_player:
+                try:
+                    self.music_player = self.bg_music.play(volume=0.12, loop=True)
+                except Exception:
+                    pass
+
     def safe_load_sound(self, file_path):
-        """Helper to ensure one missing file doesn't crash the entire audio system."""
         try:
             return arcade.Sound(file_path)
         except Exception:
             return None
 
     def play_sound_safely(self, sound_object, volume=0.5):
-        if sound_object:
+        if sound_object and not self.sfx_muted:
             try:
                 sound_object.play(volume=volume)
             except Exception:
@@ -187,7 +201,7 @@ class FruitCatcherGame(arcade.Window):
             pass
 
     def spawn_object(self):
-        if self.current_state in [STATE_MENU, STATE_INTRO]:
+        if self.current_state in [STATE_MENU, STATE_INTRO, STATE_LEVEL_UP]:
             weights = [20, 20, 20, 20, 20, 0, 0, 0, 0, 0, 0, 0, 0] 
         else:
             star_weight = max(1, 4 - (self.level // 3)) if (self.level % 3 == 0) else 0
@@ -323,18 +337,16 @@ class FruitCatcherGame(arcade.Window):
 
     def draw_endgame_layout(self):
         center_x = self.screen_w // 2
-        
-        title_y = self.screen_h - (self.screen_h * 0.12)
+        title_y = self.screen_h - (self.screen_h * 0.10)
         arcade.draw_text("GAME OVER", center_x, title_y, arcade.color.RED, 64, anchor_x="center", bold=True)
         
-        # --- FIXED LAYOUT: Box is now safely sized to fully encapsulate the text lines ---
-        box_w = min(740, int(self.screen_w * 0.60))
-        box_h = 380  
-        box_y = title_y - (box_h // 2) - 60
+        box_w = min(740, int(self.screen_w * 0.58))
+        box_h = 350  
+        box_y = title_y - (box_h // 2) - 50
         
         arcade.draw_rect_filled(arcade.XYWH(center_x, box_y, box_w, box_h), (30, 41, 59, 230))
         arcade.draw_rect_outline(arcade.XYWH(center_x, box_y, box_w, box_h), arcade.color.CYAN, 1.5)
-        arcade.draw_text("📊 ITEM HARVEST BREAKDOWN", center_x, box_y + (box_h // 2) - 40, arcade.color.CYAN, 18, anchor_x="center", bold=True)
+        arcade.draw_text("📊 ITEM HARVEST BREAKDOWN", center_x, box_y + (box_h // 2) - 30, arcade.color.CYAN, 18, anchor_x="center", bold=True)
         
         col1_text = (
             f"Apples:      {self.stats_tracker['Apple']:<3}   Blueberries: {self.stats_tracker['Blueberry']:<3}\n"
@@ -347,11 +359,10 @@ class FruitCatcherGame(arcade.Window):
             f"Hourglasses: {self.stats_tracker['Hourglass']:<3}   Rotten Slime:{self.stats_tracker['RottenFruit']:<3}"
         )
         
-        text_render_y = box_y + (box_h // 2) - 95
+        text_render_y = box_y + (box_h // 2) - 80
         arcade.draw_text(col1_text, center_x - (box_w // 2) + 40, text_render_y, arcade.color.WHITE, 16, font_name="Courier New", bold=True, multiline=True, width=330)
         arcade.draw_text(col2_text, center_x + 15, text_render_y, arcade.color.WHITE, 16, font_name="Courier New", bold=True, multiline=True, width=330)
         
-        # --- FIXED LAYOUT: Prompt sits cleanly at the bottom, directly beneath action buttons ---
         button_y = box_y - (box_h // 2) - 45
         arcade.draw_text("🔄 Play Again [R]", center_x - 220, button_y, arcade.color.WHITE, 22, anchor_x="center")
         arcade.draw_text("🏠 Main Menu [M]", center_x + 220, button_y, arcade.color.GOLD, 22, anchor_x="center")
@@ -390,14 +401,13 @@ class FruitCatcherGame(arcade.Window):
         elif self.current_state == STATE_INTRO:
             arcade.draw_rect_filled(arcade.XYWH(self.screen_w//2, self.screen_h//2, self.screen_w, self.screen_h), (10, 15, 30, 220))
             arcade.draw_text("GET READY!", self.screen_w//2, self.screen_h//2 + 50, arcade.color.GOLD, 48, anchor_x="center", bold=True)
-            
             bar_w = 400
             progress = (4.0 - self.intro_timer) / 4.0
             arcade.draw_rect_filled(arcade.XYWH(self.screen_w//2, self.screen_h//2 - 40, bar_w, 20), arcade.color.DARK_GRAY)
             arcade.draw_rect_filled(arcade.XYWH(self.screen_w//2 - (bar_w//2) + (bar_w * progress // 2), self.screen_h//2 - 40, bar_w * progress, 20), arcade.color.GREEN)
 
-        elif self.current_state == STATE_GAMEPLAY:
-            b_color = arcade.color.SADDLE_BROWN
+        elif self.current_state in [STATE_GAMEPLAY, STATE_PAUSE, STATE_LEVEL_UP]:
+            b_color = self.basket_colors[self.basket_color_index]
             
             if self.freeze_timer > 0:
                 b_color = arcade.color.POWDER_BLUE
@@ -420,35 +430,42 @@ class FruitCatcherGame(arcade.Window):
             else:
                 self.status_text.text = ""
                 
-            if self.status_text.text != "":
+            if self.status_text.text != "" and self.current_state == STATE_GAMEPLAY:
                 self.status_text.draw()
                 
             arcade.draw_rect_filled(arcade.XYWH(self.basket_x, self.basket_y, self.basket_width, self.basket_height), b_color)
-            
             arcade.draw_rect_filled(arcade.XYWH(self.screen_w//2, self.screen_h - 25, self.screen_w, 50), (0, 0, 0, 130))
+            
             self.hud_score.text = f"SCORE: {self.score}"
             self.hud_level.text = f"LEVEL: {self.level}"
             self.hud_lives.text = f"LIVES: {'❤️' * max(0, self.lives)}"
             self.hud_score.draw()
             self.hud_level.draw()
             self.hud_lives.draw()
-
-        elif self.current_state == STATE_PAUSE:
-            arcade.draw_rect_filled(arcade.XYWH(self.screen_w//2, self.screen_h//2, self.screen_w, self.screen_h), (0, 0, 0, 150))
-            self.pause_title.draw()
-            self.pause_resume.draw()
-            self.pause_settings.draw()
-            self.pause_quit.draw()
+            
+            if self.current_state == STATE_PAUSE:
+                arcade.draw_rect_filled(arcade.XYWH(self.screen_w//2, self.screen_h//2, self.screen_w, self.screen_h), (0, 0, 0, 150))
+                self.pause_title.draw()
+                self.pause_resume.draw()
+                self.pause_settings.draw()
+                self.pause_quit.draw()
+                
+            elif self.current_state == STATE_LEVEL_UP:
+                arcade.draw_rect_filled(arcade.XYWH(self.screen_w//2, self.screen_h//2, self.screen_w, self.screen_h), (0, 0, 0, 180))
+                if self.flash_counter % 20 < 10:
+                    arcade.draw_rect_filled(arcade.XYWH(self.screen_w//2, self.screen_h//2, self.screen_w, self.screen_h), (255, 255, 255, 60))
+                arcade.draw_text(f"LEVEL {self.level}", self.screen_w//2, self.screen_h//2 + 40, arcade.color.GOLD, 72, anchor_x="center", bold=True)
+                arcade.draw_text("GET READY...", self.screen_w//2, self.screen_h//2 - 40, arcade.color.WHITE, 24, anchor_x="center", bold=True)
 
         elif self.current_state == STATE_SETTINGS:
             arcade.draw_rect_filled(arcade.XYWH(self.screen_w//2, self.screen_h//2, self.screen_w, self.screen_h), (20, 24, 33, 230))
             self.settings_title.draw()
-            self.settings_control.text = f"1. CONTROL MODE: < {self.control_mode} >"
-            self.settings_sens.text = f"2. CONTROLLER SENSITIVITY: [ {self.sensitivity:.1f} ]"
-            self.settings_control.draw()
-            self.settings_control_sub.draw()
-            self.settings_sens.draw()
-            self.settings_sens_sub.draw()
+            
+            arcade.draw_text(f"1. SOUND EFFECTS: < {'OFF' if self.sfx_muted else 'ON'} > [Press F]", self.screen_w//2, self.screen_h//2 + 40, arcade.color.WHITE, 22, anchor_x="center")
+            arcade.draw_text(f"2. MUSIC: < {'OFF' if self.music_muted else 'ON'} > [Press M]", self.screen_w//2, self.screen_h//2 - 10, arcade.color.WHITE, 22, anchor_x="center")
+            arcade.draw_text(f"3. BASKET COLOR: < {self.basket_color_names[self.basket_color_index]} > [Press C]", self.screen_w//2, self.screen_h//2 - 60, arcade.color.WHITE, 22, anchor_x="center")
+            arcade.draw_text(f"4. BASKET SPEED: [ {self.sensitivity:.1f} ] [Press LEFT/RIGHT]", self.screen_w//2, self.screen_h//2 - 110, arcade.color.WHITE, 22, anchor_x="center")
+            
             self.settings_back.draw()
 
         elif self.current_state == STATE_GAMEOVER:
@@ -466,6 +483,13 @@ class FruitCatcherGame(arcade.Window):
         
         for key in self.stats_tracker:
             self.stats_tracker[key] = 0
+            
+        # --- FIXED MUSIC RESTART ENGINE ---
+        if self.bg_music and not self.music_player and not self.music_muted:
+            try:
+                self.music_player = self.bg_music.play(volume=0.12, loop=True)
+            except Exception:
+                pass
             
         self.intro_timer = 4.0
         self.last_intro_second = 4
@@ -502,7 +526,7 @@ class FruitCatcherGame(arcade.Window):
             if key == arcade.key.ESCAPE:
                 self.basket_change_x = 0
                 self.current_state = STATE_PAUSE
-            elif self.control_mode == "KEYBOARD" and self.freeze_timer <= 0:
+            elif self.freeze_timer <= 0:
                 base_speed = 4.0 if self.sluggish_timer <= 0 else 1.5
                 adjusted_speed = base_speed + (self.sensitivity * 1.5)
                 
@@ -523,9 +547,12 @@ class FruitCatcherGame(arcade.Window):
         elif self.current_state == STATE_SETTINGS:
             if key == arcade.key.BACKSPACE:
                 self.current_state = self.previous_state
+            elif key == arcade.key.F:
+                self.sfx_muted = not self.sfx_muted
             elif key == arcade.key.M:
-                self.control_mode = "MOUSE" if self.control_mode == "KEYBOARD" else "KEYBOARD"
-                self.basket_change_x = 0
+                self.toggle_music()
+            elif key == arcade.key.C:
+                self.basket_color_index = (self.basket_color_index + 1) % len(self.basket_colors)
             elif key == arcade.key.RIGHT:
                 self.sensitivity = min(10.0, self.sensitivity + 0.5)
             elif key == arcade.key.LEFT:
@@ -535,10 +562,15 @@ class FruitCatcherGame(arcade.Window):
             if key == arcade.key.R:
                 self.trigger_game_restart()
             elif key == arcade.key.M:
+                if self.bg_music and not self.music_player and not self.music_muted:
+                    try:
+                        self.music_player = self.bg_music.play(volume=0.12, loop=True)
+                    except Exception:
+                        pass
                 self.current_state = STATE_MENU
 
     def on_key_release(self, key, modifiers):
-        if self.current_state == STATE_GAMEPLAY and self.control_mode == "KEYBOARD":
+        if self.current_state == STATE_GAMEPLAY:
             if (key == arcade.key.LEFT or key == arcade.key.A) and self.basket_change_x < 0:
                 self.basket_change_x = 0
             elif (key == arcade.key.RIGHT or key == arcade.key.D) and self.basket_change_x > 0:
@@ -550,7 +582,6 @@ class FruitCatcherGame(arcade.Window):
         if self.current_state == STATE_INTRO:
             self.intro_timer -= delta_time
             current_sec = int(self.intro_timer)
-            
             if current_sec != self.last_intro_second:
                 if current_sec > 0:
                     self.play_sound_safely(self.snd_beep, volume=0.2)
@@ -560,6 +591,19 @@ class FruitCatcherGame(arcade.Window):
                 
             if self.intro_timer <= 0:
                 self.current_state = STATE_GAMEPLAY
+            return
+            
+        if self.current_state == STATE_LEVEL_UP:
+            self.level_transition_timer -= delta_time
+            if self.level_transition_timer <= 0:
+                self.current_state = STATE_GAMEPLAY
+            return
+            
+        if self.current_state == STATE_GAMEOVER:
+            if self.flash_counter % 80 == 0 and not self.music_muted:
+                self.play_sound_safely(self.snd_rot, volume=0.3)
+            elif self.flash_counter % 80 == 40 and not self.music_muted:
+                self.play_sound_safely(self.snd_ice, volume=0.2)
             return
 
         if self.current_state == STATE_GAMEPLAY:
@@ -614,11 +658,12 @@ class FruitCatcherGame(arcade.Window):
                     })
             
             if self.current_state == STATE_GAMEPLAY:
-                if self.magnet_timer > 0 and obj["type"] == "fruit" and obj["y"] < 400:
-                    if obj["x"] < self.basket_x:
-                        obj["x"] += 3.5
-                    elif obj["x"] > self.basket_x:
-                        obj["x"] -= 3.5
+                if self.magnet_timer > 0 and obj["type"] == "fruit" and obj["y"] < 550:
+                    pull_speed = 6.5
+                    if obj["x"] < self.basket_x - 5:
+                        obj["x"] += pull_speed
+                    elif obj["x"] > self.basket_x + 5:
+                        obj["x"] -= pull_speed
                 
                 if (self.basket_x - self.basket_width//2 <= obj["x"] <= self.basket_x + self.basket_width//2) and \
                    (self.basket_y <= obj["y"] - obj["radius"] <= self.basket_y + self.basket_height):
@@ -638,30 +683,31 @@ class FruitCatcherGame(arcade.Window):
                                 self.music_player = None
                             self.play_sound_safely(self.snd_gameover, volume=0.6) 
                             self.current_state = STATE_GAMEOVER
-                    elif obj["type"] == "ice":
-                        self.play_sound_safely(self.snd_ice, volume=0.6)
-                        self.freeze_timer = 3.0  
-                    elif obj["type"] == "powerup_big":
-                        self.play_sound_safely(self.snd_basket, volume=0.5)
-                        self.basket_width = int(self.base_basket_width * 1.6) 
-                        self.big_basket_timer = 5.0  
-                    elif obj["type"] == "powerup_life":
-                        self.play_sound_safely(self.snd_star, volume=0.6)
-                        self.score += obj["points"]
-                        self.lives = min(5, self.lives + 1) 
-                    elif obj["type"] == "powerup_magnet":
-                        self.play_sound_safely(self.snd_magnet, volume=0.5)
-                        self.magnet_timer = 5.0 
-                    elif obj["type"] == "powerup_slow":
-                        self.play_sound_safely(self.snd_slow, volume=0.5)
-                        self.slow_mo_timer = 4.0
-                    elif obj["type"] == "hazard_wind":
-                        self.play_sound_safely(self.snd_wind, volume=0.5)
-                        self.wind_timer = 4.0
-                    elif obj["type"] == "hazard_sluggish":
-                        self.play_sound_safely(self.snd_rot, volume=0.5)
-                        self.score = max(0, self.score + obj["points"])
-                        self.sluggish_timer = 3.0
+                    else:
+                        if obj["type"] == "ice":
+                            self.play_sound_safely(self.snd_ice, volume=0.6)
+                            self.freeze_timer = 3.0  
+                        elif obj["type"] == "powerup_big":
+                            self.play_sound_safely(self.snd_basket, volume=0.5)
+                            self.basket_width = int(self.base_basket_width * 1.6) 
+                            self.big_basket_timer = 5.0  
+                        elif obj["type"] == "powerup_life":
+                            self.play_sound_safely(self.snd_star, volume=0.6)
+                            self.score += obj["points"]
+                            self.lives = min(5, self.lives + 1) 
+                        elif obj["type"] == "powerup_magnet":
+                            self.play_sound_safely(self.snd_magnet, volume=0.5)
+                            self.magnet_timer = 5.0 
+                        elif obj["type"] == "powerup_slow":
+                            self.play_sound_safely(self.snd_slow, volume=0.5)
+                            self.slow_mo_timer = 4.0
+                        elif obj["type"] == "hazard_wind":
+                            self.play_sound_safely(self.snd_wind, volume=0.5)
+                            self.wind_timer = 4.0
+                        elif obj["type"] == "hazard_sluggish":
+                            self.play_sound_safely(self.snd_rot, volume=0.5)
+                            self.score = max(0, self.score + obj["points"])
+                            self.sluggish_timer = 3.0
                             
                     self.falling_objects.remove(obj)
                     
@@ -669,15 +715,19 @@ class FruitCatcherGame(arcade.Window):
                         self.play_sound_safely(self.snd_level, volume=0.4)
                         self.level += 1
                         self.score_needed += 150 + (self.level * 50)
+                        
+                        self.level_transition_timer = 2.5
+                        self.falling_objects.clear()
+                        self.particles.clear()
+                        self.current_state = STATE_LEVEL_UP
                     continue
 
             if obj["y"] + obj["radius"] < 0:
                 self.falling_objects.remove(obj)
 
-        if self.current_state == STATE_GAMEPLAY and self.control_mode == "KEYBOARD":
+        if self.current_state == STATE_GAMEPLAY:
             self.basket_x += self.basket_change_x
-            
-        self.basket_x = max(self.basket_width // 2, min(self.screen_w - self.basket_width // 2, self.basket_x))
+            self.basket_x = max(self.basket_width // 2, min(self.screen_w - self.basket_width // 2, self.basket_x))
 
 if __name__ == "__main__":
     game = FruitCatcherGame()
